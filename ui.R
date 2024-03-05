@@ -1,33 +1,35 @@
-#
-# This is the user-interface definition of a Shiny web application. You can
-# run the application by clicking 'Run App' above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    https://shiny.posit.co/
-#
+#http://fontawesome.io/icons/
 
-library(shiny)
+############################## CREATE THE SIDEBAR ##############################
+sidebar <- dashboardSidebar(
+  sidebarMenu(
+    menuItem("ML Prediction", tabName = "Tab0", icon = icon("info-circle"))
 
-# Define UI for application that draws a histogram
-fluidPage(
+  ),
 
-    # Application title
-    titlePanel("Old Faithful Geyser Data"),
+  # Logo in sidebar menu
+  div(style = "position: fixed; bottom: 35px; left: 35px;",
+      img(src = 'external_logos/r.jpg', width = 197)
+  )
+)
 
-    # Sidebar with a slider input for number of bins
-    sidebarLayout(
-        sidebarPanel(
-            sliderInput("bins",
-                        "Number of bins:",
-                        min = 1,
-                        max = 50,
-                        value = 30)
-        ),
+############################### CREATE THE BODY ################################
+body <- dashboardBody(
+  tags$head(
+    tags$link(rel = "stylesheet", type = "text/css", href = "AdminLTE.min.css"),
+    tags$link(rel = "stylesheet", type = "text/css", href = "_all-skins.min.css"),
+    tags$link(rel = "stylesheet", type = "text/css", href = "skin-yellow.min.css")
+  ),
 
-        # Show a plot of the generated distribution
-        mainPanel(
-            plotOutput("distPlot")
-        )
-    )
+  # Write the UI reference of the modules
+  tabItems(
+    tabItem(tabName = "Tab0", tab_0_ui("tab_0"))
+  )
+)
+
+#################### PUT THEM TOGETHER INTO A DASHBOARDPAGE ####################
+dashboardPage(skin = "blue",
+  dashboardHeader(title = "Predicciones ML"),
+  sidebar,
+  body
 )
