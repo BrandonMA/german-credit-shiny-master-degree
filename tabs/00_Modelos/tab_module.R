@@ -1,12 +1,6 @@
-library(shiny)
-library(dplyr)
-library(ggplot2)
-library(randomForest)
-library(rpart)
-library(e1071)
-library(pROC)  # Asegúrate de que pROC está instalado y cargado correctamente
-
 # Front page module
+
+library(pROC)
 
 # UI function
 tab_0_ui <- function(id) {
@@ -14,12 +8,17 @@ tab_0_ui <- function(id) {
   
   fluidPage(
     fluidRow(
-      box(width = 3, textInput(ns("dat1"), value = "GermanCredit.csv", label = "Introduzca el nombre del dataset")),
-      box(width = 3, textInput(ns("dat2"), value = "credit_risk", label = "Introduzca el nombre de la target")),
-      box(width = 6, checkboxGroupInput(ns("vars"), "Columnas en dataset", choices = names(df), inline = TRUE))
+      box(width = 3, textInput(ns("dat1"), 
+                               value = "GermanCredit.csv", 
+                               label = "Introduzca el nombre del dataset")),
+      box(width = 3, textInput(ns("dat2"), 
+                               value = "credit_risk", 
+                               label = "Introduzca el nombre de la target")),
+      box(width = 6, checkboxGroupInput(ns("vars"), "Columnas en dataset:",
+                                        names(df), inline = TRUE))
     ),
     fluidRow(
-      box(width = 3, numericInput(ns("test1"), min = 0, max = 1, value = 0.7, label = "Elija proporción test - training")),
+      box(width = 3, numericInput(ns("test1"), min = 0, max = 1, value = 0.7, label = "Elija proporcion test - training")),        
       box(width = 3, selectInput(ns("sel1"), choices = c("Logistica", "Random Forest", "Decision Tree", "Naive Bayes"), label = "Elija su modelo"))
     ),
     fluidRow(
@@ -27,68 +26,201 @@ tab_0_ui <- function(id) {
     ),
     fluidRow(
       box(title = "Lift en el primer decil", width = 3, verbatimTextOutput(ns("Lift10"))),
-      box(title = "Probabilidad de Predicción", status = "primary", solidHeader = TRUE, width = 12, plotOutput(ns("modelPlot")))
-    ),
-    fluidRow(
-      box(title = "Gráfico Específico del Modelo", status = "primary", solidHeader = TRUE, width = 12, plotOutput(ns("specificModelPlot")))
+      box(title = "Gráfico Específico del Modelo", status = "primary", solidHeader = TRUE, width = 9, plotOutput(ns("specificModelPlot")))
     )
   )
 }
 
+
 # Server function
 tab_0_server <- function(input, output, session) {
-  results <- reactiveValues(df_test_fin = NULL, model = NULL)
   
-  CalculaLift <- eventReactive(input$SubmitButton1, {
+  CalculaLift <- eventReactive(input$SubmitButton1,{
+    
     selected_vars <- input$vars
     df2 <- df %>% select(all_of(selected_vars))
+    
+    # Se ponen todos los missing a 0
     df2[is.na(df2)] <- 0
     
-    set.seed(1)
-    index <- sample(c(1:nrow(df2)), input$test1 * nrow(df2))
-    df_train <- df2[index,]
-    df_test <- df2[-index,]
+    showNotification("Ejecutando modelo", duration = 5, type = "message")
     
-    if (input$sel1 == "Logistica") {
-      formula = as.formula(paste(input$dat2, "~", paste(names(df_train)[-which(names(df_train) == input$dat2)], collapse = " + ")))
-      results$model <- glm(formula, data = df_train, family = "binomial")
+    if (input$sel1 == "Logistica"){
+      
+      set.seed(1)
+      index <- sample(c(1:nrow(df2)), input$test1 * nrow(df2))
+      
+      df_train <- df2[index,]
+      df_test <- df2[-index,] 
+      
+      suma = names(df2)[1]
+      indice_target <- which(names(df2) == input$dat2) 
+      
+      i = 1
+      
+      while (i < length(names(df2 %>% select(-all_of(indice_target))))){
+        
+        if (i < length(names(df2 %>% select(-all_of(indice_target))))){
+          
+          i = i + 1
+          suma = paste0(names(df2)[i], " + ", suma)
+          
+        } else {
+          
+          suma = suma
+          i = i + 1
+          
+        }
+        
+      }
+      
+      formula = paste0(input$dat2, "~", suma)
+      
+      mod_log <- glm(formula, data = df_train, family = "binomial")
+      
+      pred_test <- predict(mod_log, df_test, type="response" )
+      
+      df_test$prediction = pred_test
+      
+      index1 <- which(names(df_test) == "credit_risk")
+      index2 <- which(names(df_test) == "prediction")
+      
+      columnas <- c(index1, index2)
+      
+      df_test_fin <- df_test %>% select(all_of(columnas))
+      
+      df_test_fin <- df_test_fin[order(df_test_fin$prediction, decreasing =  T),]
+      
+      n10 = round((nrow(df_test) / 10), 0)
+      lift10 = df_test_fin[c(1: n10),] 
+      lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
+      
+      return(list(lift = lift10, model = list(mod_log = mod_log, df_test_fin = df_test_fin)))
+      
     } else if (input$sel1 == "Random Forest") {
-      formula_rf <- as.formula(paste(input$dat2, "~ ."))
-      results$model <- randomForest(formula_rf, data=df_train, ntree=100)
+      
+      library(randomForest)
+      
+      set.seed(1)
+      index <- sample(c(1:nrow(df2)), input$test1 * nrow(df2))
+      
+      df_train <- df2[index,]
+      df_test <- df2[-index,] 
+      
+      target <- input$dat2
+      formula_rf <- as.formula(paste(target, "~ ."))
+      
+      mod_rf <- randomForest(formula_rf, data=df_train, ntree=100)
+      
+      pred_test_rf <- predict(mod_rf, df_test, type="response")
+      
+      # Convertir las predicciones a numérico, en caso de ser necesario
+      df_test$prediction <- as.numeric(pred_test_rf)
+      
+      index1 <- which(names(df_test) == target)
+      index2 <- which(names(df_test) == "prediction")
+      
+      columnas <- c(index1, index2)
+      
+      df_test_fin <- df_test %>% select(all_of(columnas))
+      
+      # Ordenar el dataset en función de la probabilidad
+      df_test_fin <- df_test_fin[order(df_test_fin$prediction, decreasing = TRUE),]
+      
+      # Cálculo del lift en el primer decil
+      n10 = round((nrow(df_test) / 10), 0)
+      lift10 = df_test_fin[c(1:n10),] 
+      lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
+      
+      return(list(lift = lift10, model = list(mod_rf = mod_rf, df_test_fin = df_test_fin)))
+      
     } else if (input$sel1 == "Decision Tree") {
+      library(rpart)
+      
+      set.seed(1)
+      index <- sample(c(1:nrow(df2)), input$test1 * nrow(df2))
+      
+      df_train <- df2[index,]
+      df_test <- df2[-index,]
+      
       formula_dt <- as.formula(paste(input$dat2, "~ ."))
-      results$model <- rpart(formula_dt, data=df_train, method="class")
+      
+      mod_dt <- rpart(formula_dt, data=df_train, method="class")
+      pred_test_dt <- predict(mod_dt, df_test, type="prob")[,2]
+      
+      df_test$prediction <- pred_test_dt
+      
+      index1 <- which(names(df_test) == input$dat2)
+      index2 <- which(names(df_test) == "prediction")
+      
+      columnas <- c(index1, index2)
+      
+      df_test_fin <- df_test %>% select(all_of(columnas))
+      
+      df_test_fin <- df_test_fin[order(df_test_fin$prediction, decreasing = TRUE),]
+      
+      n10 = round((nrow(df_test) / 10), 0)
+      lift10 = df_test_fin[c(1:n10),]
+      lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
+      
+      return(list(lift = lift10, model = list(mod_dt = mod_dt, df_test_fin = df_test_fin)))
+      
     } else if (input$sel1 == "Naive Bayes") {
-      results$model <- naiveBayes(df_train[,-which(names(df_train) == input$dat2)], df_train[[input$dat2]])
+      library(e1071)
+      
+      set.seed(1)
+      index <- sample(c(1:nrow(df2)), input$test1 * nrow(df2))
+      
+      df_train <- df2[index,]
+      df_test <- df2[-index,]
+      
+      # Asegurarse de que no haya valores NA en los datos de entrenamiento y prueba
+      df_train <- na.omit(df_train)
+      df_test <- na.omit(df_test)
+      
+      formula_nb <- as.formula(paste(input$dat2, "~ ."))
+      
+      # Entrenamiento del modelo Naive Bayes
+      mod_nb <- naiveBayes(formula_nb, data=df_train)
+      
+      # Predicciones con el modelo Naive Bayes
+      pred_test_nb <- predict(mod_nb, df_test, type = "raw")
+      
+      # Asumiendo que quieres la probabilidad de la clase positiva
+      df_test$prediction <- pred_test_nb[,2]
+      
+      index1 <- which(names(df_test) == input$dat2)
+      index2 <- which(names(df_test) == "prediction")
+      
+      columnas <- c(index1, index2)
+      
+      df_test_fin <- df_test %>% select(all_of(columnas))
+      
+      df_test_fin <- df_test_fin[order(df_test_fin$prediction, decreasing = TRUE),]
+      
+      n10 = round((nrow(df_test) / 10), 0)
+      lift10 = df_test_fin[c(1:n10),]
+      lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
+      
+      return(list(lift = lift10, model = list(mod_nb = mod_nb, df_test_fin = df_test_fin)))
+      
     }
-    
-    df_test$prediction <- predict(results$model, df_test, type = ifelse(input$sel1 %in% c("Logistica", "Naive Bayes"), "response", "prob"))
-    results$df_test_fin <- df_test %>% arrange(desc(prediction))
-    
-    lift10 = sum(df_test[1:round(nrow(df_test) / 10), input$dat2]) / (sum(df_test[[input$dat2]]) / 10)
-    return(lift10)
   })
   
-  output$Lift10 <- renderText({ CalculaLift() })
-  
-  output$modelPlot <- renderPlot({
-    req(results$df_test_fin)
-    df_test_fin <- results$df_test_fin
-    ggplot(df_test_fin, aes(x = prediction, fill = factor(df_test_fin[[input$dat2]]))) +
-      geom_histogram(binwidth = 0.05) +
-      labs(title = "Distribución de predicciones", x = "Probabilidad de predicción", fill = "Resultado Real") +
-      theme_minimal()
+  output$Lift10 <- renderText({
+    CalculaLift()$lift
   })
   
   output$specificModelPlot <- renderPlot({
-    req(results$model)
+    req(CalculaLift()$model)
+    results <- CalculaLift()$model
     if (input$sel1 == "Logistica") {
       roc_curve <- roc(results$df_test_fin[[input$dat2]], results$df_test_fin$prediction)
       plot(roc_curve, main="Curva ROC para Regresión Logística")  # Utiliza la función plot genérica
     } else if (input$sel1 == "Random Forest") {
-      varImpPlot(results$model, main="Importancia de las Variables para Random Forest")
+      varImpPlot(results$mod_rf, main="Importancia de las Variables para Random Forest")
     } else if (input$sel1 == "Decision Tree") {
-      rpart.plot::rpart.plot(results$model, main="Diagrama del Árbol de Decisión")
+      rpart.plot::rpart.plot(results$mod_dt, main="Diagrama del Árbol de Decisión")
     } else if (input$sel1 == "Naive Bayes") {
       df_test_fin <- results$df_test_fin
       ggplot(df_test_fin, aes(x = prediction)) +
@@ -96,5 +228,5 @@ tab_0_server <- function(input, output, session) {
         labs(title = "Densidades de Probabilidad para Naive Bayes", x = "Probabilidad", y = "Densidad")
     }
   })
-}
-
+  
+} # end: tab_0_server()
