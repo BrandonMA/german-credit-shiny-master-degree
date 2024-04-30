@@ -1,50 +1,43 @@
 # Front page module
-
 library(pROC)
+library(plotly)
+library(dplyr)
 
 # UI function
 tab_0_ui <- function(id) {
-  ns <- NS(id)
-  
+  ns <- NS(id)  # Namespace function for UI id encapsulation
+
+  # Main UI layout using fluidPage
   fluidPage(
     fluidRow(
-      box(width = 3, textInput(ns("dat1"), 
-                               value = "GermanCredit.csv", 
-                               label = "Introduzca el nombre del dataset")),
-      box(width = 3, textInput(ns("dat2"), 
-                               value = "credit_risk", 
-                               label = "Introduzca el nombre de la target")),
-      box(width = 6, checkboxGroupInput(ns("vars"), "Columnas en dataset:",
-                                        names(df), inline = TRUE))
+      box(title = "Data Input", status = "primary", solidHeader = TRUE, width = 6,
+          textInput(ns("dat1"), value = "GermanCredit.csv", label = "Introduzca el nombre del dataset"),
+          textInput(ns("dat2"), value = "credit_risk", label = "Introduzca el nombre de la target"),
+          checkboxGroupInput(ns("vars"), "Columnas en dataset:", names(df), inline = TRUE),
+          fluidRow(
+            column(width = 6, numericInput(ns("test1"), "Elija proporcion test - training", min = 0, max = 1, value = 0.7)),
+            column(width = 6, selectInput(ns("sel1"), "Elija su modelo", choices = c("Logistica", "Random Forest", "Decision Tree", "Naive Bayes")))
+          ),
+          actionButton(ns("SubmitButton1"), "Genera predicciones")
+      ),
+      box(title = "Lift en el primer decil", status = "info", solidHeader = TRUE, width = 6,
+        verbatimTextOutput(ns("Lift10")),
+        plotlyOutput(ns("specificModelPlot"))
+      )
     ),
-    fluidRow(
-      box(width = 3, numericInput(ns("test1"), min = 0, max = 1, value = 0.7, label = "Elija proporcion test - training")),        
-      box(width = 3, selectInput(ns("sel1"), choices = c("Logistica", "Random Forest", "Decision Tree", "Naive Bayes"), label = "Elija su modelo"))
-    ),
-    fluidRow(
-      actionButton(ns("SubmitButton1"), "Genera predicciones")
-    ),
-    fluidRow(
-      box(title = "Lift en el primer decil", width = 3, verbatimTextOutput(ns("Lift10"))),
-      box(title = "Gráfico Específico del Modelo", status = "primary", solidHeader = TRUE, width = 9, plotOutput(ns("specificModelPlot")))
-    )
   )
 }
 
 
 # Server function
 tab_0_server <- function(input, output, session) {
-  
-  CalculaLift <- eventReactive(input$SubmitButton1,{
-    
+  CalculaLift <- eventReactive(input$SubmitButton1, {
     selected_vars <- input$vars
     df2 <- df %>% select(all_of(selected_vars))
-    
-    # Se ponen todos los missing a 0
-    df2[is.na(df2)] <- 0
-    
+    df2[is.na(df2)] <- 0  # Handling missing values by setting to 0
+
     showNotification("Ejecutando modelo", duration = 5, type = "message")
-    
+
     if (input$sel1 == "Logistica"){
       
       set.seed(1)
@@ -96,7 +89,6 @@ tab_0_server <- function(input, output, session) {
       lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
       
       return(list(lift = lift10, model = list(mod_log = mod_log, df_test_fin = df_test_fin)))
-      
     } else if (input$sel1 == "Random Forest") {
       
       library(randomForest)
@@ -133,7 +125,6 @@ tab_0_server <- function(input, output, session) {
       lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
       
       return(list(lift = lift10, model = list(mod_rf = mod_rf, df_test_fin = df_test_fin)))
-      
     } else if (input$sel1 == "Decision Tree") {
       library(rpart)
       
@@ -164,7 +155,6 @@ tab_0_server <- function(input, output, session) {
       lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
       
       return(list(lift = lift10, model = list(mod_dt = mod_dt, df_test_fin = df_test_fin)))
-      
     } else if (input$sel1 == "Naive Bayes") {
       library(e1071)
       
@@ -203,20 +193,39 @@ tab_0_server <- function(input, output, session) {
       lift10 = sum(lift10[,1]) / (sum(df_test_fin[,1]) / 10)
       
       return(list(lift = lift10, model = list(mod_nb = mod_nb, df_test_fin = df_test_fin)))
-      
     }
   })
-  
+
   output$Lift10 <- renderText({
     CalculaLift()$lift
   })
-  
-  output$specificModelPlot <- renderPlot({
+
+  output$specificModelPlot <- renderPlotly({
     req(CalculaLift()$model)
     results <- CalculaLift()$model
     if (input$sel1 == "Logistica") {
       roc_curve <- roc(results$df_test_fin[[input$dat2]], results$df_test_fin$prediction)
-      plot(roc_curve, main="Curva ROC para Regresión Logística")  # Utiliza la función plot genérica
+
+      # Create a data frame with the false positive rate (1 - Specificity) and the true positive rate (Sensitivity)
+      roc_data <- data.frame(
+        FPR = 1 - roc_curve$specificities,  # False Positive Rate
+        TPR = roc_curve$sensitivities       # True Positive Rate
+      )
+
+      # Generate the plot with plotly
+      interactive_roc <- plot_ly(data = roc_data, x = ~FPR, y = ~TPR, type = 'scatter', mode = 'lines',
+                                line = list(color = 'rgba(205, 12, 24, 0.8)', width = 2)) %>%
+        layout(title = "Curva ROC para Regresión Logística",
+              xaxis = list(title = "1 - Especificidad", zeroline = FALSE),
+              yaxis = list(title = "Sensibilidad", zeroline = FALSE),
+              hovermode = 'closest')
+
+      # Optionally, add the diagonal line that represents the "no-skill" classifier
+      interactive_roc <- add_trace(interactive_roc, x = c(0, 1), y = c(0, 1), mode = "lines", 
+                                  line = list(color = 'navy', dash = 'dash'), 
+                                  showlegend = FALSE)
+
+      return(interactive_roc)
     } else if (input$sel1 == "Random Forest") {
       varImpPlot(results$mod_rf, main="Importancia de las Variables para Random Forest")
     } else if (input$sel1 == "Decision Tree") {
@@ -228,5 +237,4 @@ tab_0_server <- function(input, output, session) {
         labs(title = "Densidades de Probabilidad para Naive Bayes", x = "Probabilidad", y = "Densidad")
     }
   })
-  
-} # end: tab_0_server()
+}
