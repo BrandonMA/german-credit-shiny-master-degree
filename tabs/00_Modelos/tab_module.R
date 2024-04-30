@@ -200,41 +200,59 @@ tab_0_server <- function(input, output, session) {
     CalculaLift()$lift
   })
 
-  output$specificModelPlot <- renderPlotly({
-    req(CalculaLift()$model)
-    results <- CalculaLift()$model
-    if (input$sel1 == "Logistica") {
-      roc_curve <- roc(results$df_test_fin[[input$dat2]], results$df_test_fin$prediction)
+  output$plotOutput <- renderUI({
+    if (input$sel1 %in% c("Logistica", "Naive Bayes")) {
+      plotlyOutput(ns("specificModelPlot"))
+    } else {
+      plotOutput(ns("specificModelPlot"))
+    }
+  })
 
-      # Create a data frame with the false positive rate (1 - Specificity) and the true positive rate (Sensitivity)
-      roc_data <- data.frame(
-        FPR = 1 - roc_curve$specificities,  # False Positive Rate
-        TPR = roc_curve$sensitivities       # True Positive Rate
-      )
+  observeEvent(input$SubmitButton1, {
+    if (input$sel1 == "Logistica" || input$sel1 == "Naive Bayes") {
+      output$specificModelPlot <- renderPlotly({
+        req(CalculaLift()$model)
+        results <- CalculaLift()$model
+        if (input$sel1 == "Logistica") {
+          roc_curve <- roc(results$df_test_fin[[input$dat2]], results$df_test_fin$prediction)
 
-      # Generate the plot with plotly
-      interactive_roc <- plot_ly(data = roc_data, x = ~FPR, y = ~TPR, type = 'scatter', mode = 'lines',
-                                line = list(color = 'rgba(205, 12, 24, 0.8)', width = 2)) %>%
-        layout(title = "Curva ROC para Regresión Logística",
-              xaxis = list(title = "1 - Especificidad", zeroline = FALSE),
-              yaxis = list(title = "Sensibilidad", zeroline = FALSE),
-              hovermode = 'closest')
+          # Create a data frame with the false positive rate (1 - Specificity) and the true positive rate (Sensitivity)
+          roc_data <- data.frame(
+            FPR = 1 - roc_curve$specificities,  # False Positive Rate
+            TPR = roc_curve$sensitivities       # True Positive Rate
+          )
 
-      # Optionally, add the diagonal line that represents the "no-skill" classifier
-      interactive_roc <- add_trace(interactive_roc, x = c(0, 1), y = c(0, 1), mode = "lines", 
-                                  line = list(color = 'navy', dash = 'dash'), 
-                                  showlegend = FALSE)
+          # Generate the plot with plotly
+          interactive_roc <- plot_ly(data = roc_data, x = ~FPR, y = ~TPR, type = 'scatter', mode = 'lines',
+                                    line = list(color = 'rgba(205, 12, 24, 0.8)', width = 2)) %>%
+            layout(title = "Curva ROC para Regresión Logística",
+                  xaxis = list(title = "1 - Especificidad", zeroline = FALSE),
+                  yaxis = list(title = "Sensibilidad", zeroline = FALSE),
+                  hovermode = 'closest')
 
-      return(interactive_roc)
-    } else if (input$sel1 == "Random Forest") {
-      varImpPlot(results$mod_rf, main="Importancia de las Variables para Random Forest")
-    } else if (input$sel1 == "Decision Tree") {
-      rpart.plot::rpart.plot(results$mod_dt, main="Diagrama del Árbol de Decisión")
-    } else if (input$sel1 == "Naive Bayes") {
-      df_test_fin <- results$df_test_fin
-      ggplot(df_test_fin, aes(x = prediction)) +
-        geom_density(aes(fill = factor(df_test_fin[[input$dat2]])), alpha = 0.5) +
-        labs(title = "Densidades de Probabilidad para Naive Bayes", x = "Probabilidad", y = "Densidad")
+          # Optionally, add the diagonal line that represents the "no-skill" classifier
+          interactive_roc <- add_trace(interactive_roc, x = c(0, 1), y = c(0, 1), mode = "lines", 
+                                      line = list(color = 'navy', dash = 'dash'), 
+                                      showlegend = FALSE)
+
+          return(interactive_roc)
+        } else if (input$sel1 == "Naive Bayes") {
+          df_test_fin <- results$df_test_fin
+          ggplot(df_test_fin, aes(x = prediction)) +
+            geom_density(aes(fill = factor(df_test_fin[[input$dat2]])), alpha = 0.5) +
+            labs(title = "Densidades de Probabilidad para Naive Bayes", x = "Probabilidad", y = "Densidad")
+        }
+      })
+    } else {
+      output$specificModelPlot <- renderPlot({
+        req(CalculaLift()$model)
+        results <- CalculaLift()$model
+        if (input$sel1 == "Random Forest") {
+          varImpPlot(results$mod_rf, main="Importancia de las Variables para Random Forest")
+        } else if (input$sel1 == "Decision Tree") {
+          rpart.plot::rpart.plot(results$mod_dt, main="Diagrama del Árbol de Decisión")
+        }
+      })
     }
   })
 }
